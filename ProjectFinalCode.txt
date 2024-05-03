@@ -1,0 +1,229 @@
+import speech_recognition as sr
+import easyimap as e
+import pyttsx3
+import smtplib
+from email.message import EmailMessage
+import queue
+import threading
+import PySimpleGUI as sg
+# unm = "satmail16@gmail.com"                     Login credentials of our mail id
+# pwd = "Akshay@09"
+
+r = sr.Recognizer()
+
+engine = pyttsx3.init()  # Defining an engine for text to speech conversion
+voices = engine.getProperty('voices')
+engine.setProperty('voice', voices[1].id)
+engine.setProperty('rate', 200)
+
+
+def speak(thread_queue, str):
+    thread_queue.put(str)
+    engine.say(str)
+    engine.runAndWait()
+
+
+def listen(thread_queue):
+    with sr.Microphone() as source:
+        r.adjust_for_ambient_noise(source)
+        str = "Speak Now:"
+        speak(thread_queue, str)
+        audio = r.listen(source)
+        try:
+            text = r.recognize_google(audio)
+            thread_queue.put("You Said", text)
+            return text
+        except sr.UnknownValueError:
+            str = "Sorry could not recognize what you said please repeat again.."
+            speak(thread_queue, str)
+            listen(thread_queue)
+        except Exception as exc:
+            str = "Say that again Please"
+            speak(thread_queue, str)
+            listen(thread_queue)
+
+
+def sendmail(thread_queue, unm, pwd, reciever, subject, message):
+
+    # this is server, because when we send a message or email, this email goes to server and then server will send the mail to the specific person we want to send to.
+
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    # we use gmail to access email and here we have to specify the port no. which is 587
+    server.starttls()
+    # TransportLayerSecurity=assuring or telling the server that you can trust me
+    try:
+        server.login(unm, pwd)
+        email = EmailMessage()
+        email['From'] = unm
+        email['To'] = reciever
+        email['Subject'] = subject
+        email.set_content(message)
+        server.send_message(email)
+    except Exception as e:
+        str = "Oops an error occured"
+        speak(thread_queue, str)
+        thread_queue.put("-KILL-THREAD-")
+
+
+def get_email_info(thread_queue, unm, pwd):
+    speak(thread_queue, 'To Whom you want to send email')
+    name = listen(thread_queue)
+    email_list = {
+        'Ashok': 'akshaysrandomemail@gmail.com',
+        'Sat': 'satmail16@gmail.com',
+        'Sunil': 'sunilsubramani23@gmail.com',
+        'Tamil': 'tamilatiger22@gmail.com'
+    }
+
+    if name in email_list:
+        reciever = email_list[name]
+        thread_queue.put(reciever)
+        speak(thread_queue, 'What is the subject of your email?')
+        subject = listen(thread_queue)
+        str = "subject is"
+        speak(thread_queue, str)
+        speak(thread_queue, subject)
+        speak(thread_queue, 'Speak the body for your email')
+        message = listen(thread_queue)
+        str = "Body of the mail is:"
+        speak(thread_queue, str)
+        speak(thread_queue, message)
+        sendmail(thread_queue, unm, pwd, reciever, subject, message)
+        speak(thread_queue, 'Your Email has been sent successfully.')
+        speak(thread_queue, 'Do you want to continue to main menu? Please Say YES or NO ')
+        send_more = listen(thread_queue)
+        if 'yes' in send_more:
+            menu(thread_queue)
+        else:
+            str = "Thank you for using our service."
+            speak(thread_queue, str)
+            thread_queue.put("-KILL-THREAD-")
+
+    else:
+        str = "Sorry. Could not get it. Please try again."
+        get_email_info(thread_queue, unm, pwd)
+
+
+def readmail(thread_queue, unm, pwd):
+
+    server = e.connect("imap.gmail.com", unm, pwd)
+    server.listids()
+    str = "fetching..." #inside double quotes, it used to be oops an error occured
+    speak(thread_queue, str)
+
+    str = "Please say the Serial Number of the Email you wanna read starting from latest."
+    speak(thread_queue, str)
+
+    a = listen(thread_queue)
+    if(a == "Tu"):
+        a = "2"
+
+    b = int(a) - 1
+
+    email = server.mail(server.listids()[b])
+
+    str = "The email is from: "
+    speak(thread_queue, str)
+    speak(thread_queue, email.from_addr)
+    str = "The subject of the email is:"
+    speak(thread_queue, str)
+    speak(thread_queue, email.title)
+    str = "The body of email is:"
+    speak(thread_queue, str)
+    speak(thread_queue, email.body)
+
+
+def menu(thread_queue):
+    # Login credentials of our mail id
+
+    speak(thread_queue, "Before we start, Please mention your gmail ID")
+    
+    unm = listen(thread_queue)
+    unm = unm.lower()
+    unm = unm.replace("at the rate", "@")
+    unm = unm.replace("at gmail.com", "@gmail.com")
+    unm = unm.replace(" ", "")
+    
+    speak(thread_queue, "The username is:")
+    speak(thread_queue, unm)
+    speak(thread_queue, "Please Speak the password")
+    
+    pwd = listen(thread_queue)
+    pwd = pwd.replace("at the rate", "@")
+    pwd = pwd.replace("dot", ".")
+    pwd = pwd.replace(" ", "")
+    
+    speak(thread_queue, pwd)
+
+    str = "Welcome to voice controlled email service"
+    speak(thread_queue, str)
+
+    while True:
+
+        str = "What do you want to do?"
+        speak(thread_queue, str)
+
+        str = "Speak SEND to Send Email. Speak READ to Read Inbox. Speak EXIT to Exit"
+        speak(thread_queue, str)
+
+        ch = listen(thread_queue)
+
+        if 'send' in ch:
+            str = "You have chosen to send an email"
+            speak(thread_queue, str)
+            get_email_info(thread_queue, unm, pwd)
+            sendmail(thread_queue, unm, pwd)
+
+        elif 'read' in ch:
+            str = "You have chosen to read email."
+            speak(thread_queue, str)
+            readmail(thread_queue, unm, pwd)
+
+        elif 'exit' in ch:
+            str = "You have chosen to exit, Bye Bye"
+            speak(thread_queue, str)
+            thread_queue.put("-KILL-THREAD-")  # exit the thread
+            return
+
+        else:
+            str = "Invalid choice, you said:"
+            speak(thread_queue, str)
+            speak(thread_queue, ch)
+
+
+def the_gui():
+    thread_queue = queue.Queue()  # to read your print messages in textbox of screen
+
+    sg.theme("DarkGrey2")
+    layout = [[sg.Text("Voice based email for visually challenged", font="TimesNewRoman 20", expand_x=True, justification="center")],
+              [sg.Push(), sg.Image("microphoneblind.png"), sg.Push()], [
+        sg.Push(), sg.Button('Record', k='-RECORD-', bind_return_key=True), sg.Push()],
+        [sg.Push(), sg.Text("", k="op_text", font="TimesNewRoman 14", size=(30, 6)), sg.Push()]]
+
+    window = sg.Window("Voice Mail For Blind", layout)
+    while True:
+        event, values = window.read(timeout=100)
+        if event == sg.WIN_CLOSED:
+            break
+        elif event == "-RECORD-":
+            window['-RECORD-'].update(disabled=True)
+            threading.Thread(target=menu, args=(
+                thread_queue, ), daemon=True).start()
+        try:
+            message = thread_queue.get_nowait()
+        except queue.Empty:
+            message = ''
+
+        if message == "-KILL-THREAD-":
+            window["op_text"].update(
+                "Thank You for using Voice Mail For Blind press Record to start again.")
+            window['-RECORD-'].update(disabled=False)
+
+        elif message:
+            window['op_text'].update(message)
+
+    window.close()
+
+
+if __name__ == '__main__':
+    the_gui()
